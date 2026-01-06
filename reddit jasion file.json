@@ -1,0 +1,754 @@
+{
+  "name": "yt with reddit",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        64,
+        96
+      ],
+      "id": "b0a6ac87-a432-4e46-90b9-011430fcdae7",
+      "name": "Telegram Trigger",
+      "webhookId": "03986990-3fbb-48b2-b5d2-4dbdcca64b78",
+      "credentials": {
+        "telegramApi": {
+          "id": "XB8WmXLJC4wRdTJP",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6f707b74-da77-45c3-bc6c-31c277f09f91",
+              "name": "message.text",
+              "value": "={{ $json.message.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        96
+      ],
+      "id": "a412fa16-bc26-404b-86d0-d43c617f85de",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        96
+      ],
+      "id": "bcb0a01d-f7a4-4ae8-a941-305649a07e82",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash-lite-preview-09-2025",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        464,
+        304
+      ],
+      "id": "da1ec767-9fa6-47d4-8f8b-414cd9f1c42c",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "DA6Fi4wIXKYQ6YOV",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n\t\"link\": \"https://www.reddit.com/r/sheffield/comments/1nf7kh6/guys_the_impossible_happened/\",\n    \"subReddit\": \"sheffield\",\n    \"postId\": \"1nf7kh6\",\n\t\"text\": \"text provided by the user other than the link, this can be null\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        640,
+        304
+      ],
+      "id": "02402780-3033-4d43-ac75-3ce91e72a571",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "content": "## Text Extraction",
+        "height": 448,
+        "width": 880
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "4f23e2a9-2e15-4d2b-974c-29de40eba3db",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "subreddit": "={{ $json.output.subReddit }}",
+        "postId": "={{ $json.output.postId }}"
+      },
+      "type": "n8n-nodes-base.reddit",
+      "typeVersion": 1,
+      "position": [
+        992,
+        64
+      ],
+      "id": "0a6ee44a-85fc-4e83-adf3-44a26b91bece",
+      "name": "Get a post"
+    },
+    {
+      "parameters": {
+        "resource": "postComment",
+        "operation": "getAll",
+        "subreddit": "={{ $json.output.subReddit }}",
+        "postId": "={{ $json.output.postId }}",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.reddit",
+      "typeVersion": 1,
+      "position": [
+        992,
+        240
+      ],
+      "id": "5cee8a7b-2ec0-4d29-8b2b-f0929e4e88aa",
+      "name": "Get many comments in a post"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node - Extract Reddit Comment Content with Replies\nfunction extractCommentContent(comments, allContent = []) {\n  comments.forEach(comment => {\n    // Extract the essential content fields\n    const content = {\n      id: comment.id,\n      body: comment.body,\n      author: comment.author,\n      depth: comment.depth,\n      parent_id: comment.parent_id, // To track which comment this replies to\n      has_replies: false, // Will be updated if replies exist\n      reply_count: 0 // Number of direct replies\n    };\n    \n    // Check if this comment has replies\n    if (comment.replies && \n        comment.replies.data && \n        comment.replies.data.children && \n        comment.replies.data.children.length > 0) {\n      \n      content.has_replies = true;\n      content.reply_count = comment.replies.data.children.length;\n      \n      // Extract replies recursively\n      const replies = comment.replies.data.children.map(child => child.data);\n      extractCommentContent(replies, allContent);\n    }\n    \n    allContent.push(content);\n  });\n  \n  return allContent;\n}\n\n// Process the input data from Reddit node\nconst inputData = $input.all();\nlet allComments = [];\n\ninputData.forEach(item => {\n  // Reddit node returns an array of comments directly\n  if (Array.isArray(item.json)) {\n    const extractedContent = extractCommentContent(item.json);\n    allComments = allComments.concat(extractedContent);\n  } else {\n    // Handle single comment object\n    const extractedContent = extractCommentContent([item.json]);\n    allComments = allComments.concat(extractedContent);\n  }\n});\n\n// Convert to escaped JSON string to avoid n8n expression conflicts\nconst jsonString = JSON.stringify(allComments, null, 2);\n\n// Escape special characters that interfere with n8n expressions\nconst escapedJsonString = jsonString\n  .replace(/\\\\/g, '\\\\\\\\')  // Escape backslashes\n  .replace(/\"/g, '\\\\\"')    // Escape quotes\n  .replace(/\\n/g, '\\\\n')   // Escape newlines\n  .replace(/\\r/g, '\\\\r')   // Escape carriage returns\n  .replace(/\\t/g, '\\\\t')   // Escape tabs\n  .replace(/\\{/g, '')      // Remove opening curly brackets\n  .replace(/\\}/g, '')      // Remove closing curly brackets\n  .replace(/\\[/g, '')\n  .replace(/\\]/g, '');\n\nreturn [{ \n  json: { \n    comments_data: escapedJsonString,\n    comment_count: allComments.length,\n    raw_data: allComments  // Also include raw array for easier access\n  } \n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        240
+      ],
+      "id": "ea97b087-a3df-4aed-be34-7b94f95665ac",
+      "name": "Code in JavaScript",
+      "notesInFlow": true,
+      "notes": "Code from Claude to extract related comment info"
+    },
+    {
+      "parameters": {
+        "content": "## Reddit Data Extraction",
+        "height": 448,
+        "width": 736,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        896,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "3f187aa9-4c6e-432f-932c-5ce9a831ade3",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.selftext }}  {{ $json.comments_data }} Opinion: {{ $('AI Agent').item.json.output.text }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the best script writer; your task is to write a script using the Reddit texts and the opinion provided. \n\n---\n## Writing Instructions:\nWrite a script for an Instagram reel for a broad range of audiences. Do not use emojis in the script, and also don't use Gen Z slang. The human will provide you with the context, and you need to write a script based on it and anything related to it. The script should be less than 175 words with an engaging hook and interactive CTA.\n\nWrite like a confident, clear-thinking human speaking to another smart human.\nAvoid robotic phrases like ‘in today’s fast-paced world’, ‘leveraging synergies’, or ‘furthermore’.\nSkip unnecessary dashes (—), quotation marks (“”), and corporate buzzwords like ‘cutting-edge’, ‘robust’, or ‘seamless experience’.\n\nNo AI tone. No fluff. No filler.\nUse natural transitions like ‘here’s the thing’, ‘let’s break it down’, or ‘what this really means is…’\nKeep sentences varied in length and rhythm, like how real people speak or write.\nPrioritize clarity, personality, and usefulness. Every sentence should feel intentional, not generated.\nNo, asking questions and answering yourself.\nDo not describe the scences, just write the speaking script without any markdown nothing else. Do not include \\n in the script."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        1712,
+        80
+      ],
+      "id": "4893f18a-caf1-43cd-8c7f-189c44af1909",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1696,
+        304
+      ],
+      "id": "7d7d6174-3c85-4280-a09c-4ebb86ae7723",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "DA6Fi4wIXKYQ6YOV",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n\t\"script\": \"script without any markdown or formatting, just a normal talking script\",\n\t\"title\": \"title for the script, should be less than 100 characters\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1872,
+        304
+      ],
+      "id": "3442ebdc-067d-474b-a874-0707b2334d98",
+      "name": "Structured Output Parser1"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1488,
+        80
+      ],
+      "id": "4ae860ac-57ac-4801-81bc-9426adba4036",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7f8f21ec-02cd-4395-9d92-6f7fb2b1c8a6",
+              "name": "comments_data",
+              "value": "={{ $json.comments_data }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1360,
+        240
+      ],
+      "id": "9604e21a-0c1e-4014-a806-b78a3896c352",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "resource": "speech",
+        "operation": "textToSpeech"
+      },
+      "type": "@elevenlabs/n8n-nodes-preview-elevenlabs.elevenLabs",
+      "typeVersion": 1,
+      "position": [
+        2112,
+        112
+      ],
+      "id": "ff051e97-94c9-4878-97be-2da6d86e030d",
+      "name": "Convert text to speech",
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://upload.heygen.com/v1/asset",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "MjM2Y2ZkMjdjNTJhNDY5NTgxZjFlMGUfdfdfdfdf2MmRjYWIyNDUtMTcyNDc3Mw=="
+            },
+            {
+              "name": "Content-Type",
+              "value": "audio/mpeg"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "name": "HeyGen Upload Asset",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2336,
+        112
+      ],
+      "id": "4b93f462-3b90-4c1b-9386-cbcee67e58b3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.heygen.com/v2/video/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "MjM2Y2ZkMjdjNTJhNDY5NTgfdfxZjFlMGU2MmRWIyNDUtMTcyNzY4NDc3Mw=="
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"video_inputs\": [\n    {\n      \"character\": {\n        \"type\": \"avatar\",\n        \"avatar_id\": \"1c51d2d27rered514c7ea51781f71b325d2c\",\n        \"avatar_style\": \"normal\"\n      },\n      \"voice\": {\n        \"type\": \"audio\",\n        \"audio_url\": \"{{ $json.data.url }}\"\n      }\n    }\n  ],\n  \"test\": false,\n  \"caption\": false,\n  \"dimension\": {\n    \"width\": 1280,\n    \"height\": 720\n  }\n} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2560,
+        112
+      ],
+      "id": "f1ca8940-a96c-4c58-a599-53e90fdf61a7",
+      "name": "Heygen Avatar Creation"
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "minutes"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2768,
+        112
+      ],
+      "id": "c84af851-0099-46bf-8502-dcbbe5410b18",
+      "name": "Wait",
+      "webhookId": "e0952739-cba9-4fd4-a568-8b73cd3f68e8"
+    },
+    {
+      "parameters": {
+        "content": "## Script",
+        "height": 448,
+        "width": 352,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1648,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "76efcb63-2c5b-42a1-b17d-e1cfba6d0c33",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Avatar Creation",
+        "height": 448,
+        "width": 1120,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2016,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "be69e041-2286-42db-bdd0-63b56faaf608",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "url": "https://api.heygen.com/v1/video_status.get",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "video_id",
+              "value": "={{ $json.data.video_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "fd=="
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2976,
+        112
+      ],
+      "id": "0db54f5f-470f-473d-83b8-26c42f344326",
+      "name": "Fetch Heygen Video"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.data.video_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3200,
+        112
+      ],
+      "id": "43e73304-cfe5-4839-98d6-11194fe27d59",
+      "name": "Download Video"
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $('AI Agent1').item.json.output.title }}",
+        "regionCode": "IN",
+        "categoryId": "28",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [
+        3376,
+        112
+      ],
+      "id": "cf9a78c0-7ad9-4f22-9b72-1eeef6cb658d",
+      "name": "Upload a video"
+    },
+    {
+      "parameters": {
+        "content": "## Upload to youtube\n",
+        "height": 448,
+        "width": 352,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3152,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "861245fe-0784-4e7a-a47d-5016d30ad991",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "=Video uploaded successfully!! Here is the link: https://www.youtube.com/watch?v={{ $json.uploadId }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3632,
+        112
+      ],
+      "id": "2be5519f-3407-4148-9907-9a9ebab48b82",
+      "name": "Send a text message",
+      "webhookId": "af3657c2-ec4e-4cdc-9673-d362242f7009",
+      "credentials": {
+        "telegramApi": {
+          "id": "XB8WmXLJC4wRdTJP",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Send link telegram\n",
+        "height": 448,
+        "width": 352
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3520,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "521b42bb-2a4c-494b-9ae9-18e0492b645b",
+      "name": "Sticky Note5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Get a post",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get many comments in a post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a post": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many comments in a post": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Convert text to speech",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Convert text to speech": {
+      "main": [
+        [
+          {
+            "node": "HeyGen Upload Asset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HeyGen Upload Asset": {
+      "main": [
+        [
+          {
+            "node": "Heygen Avatar Creation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Heygen Avatar Creation": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Fetch Heygen Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Heygen Video": {
+      "main": [
+        [
+          {
+            "node": "Download Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video": {
+      "main": [
+        [
+          {
+            "node": "Upload a video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload a video": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "1b9d27e6-2f32-4fd1-88ae-53608c07247f",
+  "meta": {
+    "instanceId": "7c7d8e3fbfba7140b9c83c777452ee6eb3f9867004183c9ac639abc37e99e9a8"
+  },
+  "id": "MX3L3Q3lwphzBKkP",
+  "tags": []
+}
